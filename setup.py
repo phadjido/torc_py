@@ -42,8 +42,8 @@ with open("README.md", "r") as fh:
 
 setup(
     name=NAME,
-    version='0.1.1',
-    author='Panagiotis Chatzidoukas',
+    version='0.1.2',
+    author='Panagiotis Hadjidoukas',
     author_email='phadjido@gmail.com',
     description='TORC Tasking library',
     license='Eclipse Public License v1.0',

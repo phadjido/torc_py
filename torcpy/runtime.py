@@ -1,12 +1,14 @@
 """
 (C) Copyright IBM Corporation 2019
-All rights reserved. This program and the accompanying materials
-are made available under the terms of the Eclipse Public License v1.0
-which accompanies this distribution, and is available at
-http://www.eclipse.org/legal/epl-v10.html
-"""
+All rights reserved.
 
-"""Implements torcpy runtime system and API."""
+This program and the accompanying materials are made available under the
+terms of the Eclipse Public License v1.0 which accompanies this distribution,
+and is available at http://www.eclipse.org/legal/epl-v10.html
+
+Module:
+    torcpy runtime system and API implementation.
+"""
 
 import copy
 import ctypes
@@ -36,10 +38,13 @@ class COMM(object):
     def __init__(self):
         self.rank = 0
         self.size = 1
+
     def Get_rank(self):
         return self.rank
+
     def Get_size(self):
         return self.size
+
     def barrier(self):
         pass
 
@@ -55,8 +60,8 @@ class myMPI(object):
 
 try:
     from mpi4py import MPI
-    _torc_log.debug('mpi4py module was succesfully imported')
-except:
+    _torc_log.debug('mpi4py module was successfully imported')
+except ImportError:
     _torc_log.warning("mpi4py could not be imported, loading a dummy MPI module.")
     MPI = myMPI()
 
@@ -378,7 +383,6 @@ def dequeue_steal():
 def waitall(tasks=None, as_completed=False):
     """Suspend the calling task until all each spawned child tasks have completed
     """
-    global torc_executed
     mytask = torc_tls.curr_task  # myself
 
     completed_tasks = None
@@ -872,8 +876,56 @@ def map(f, *seq, chunksize=1):
         return flat_res
 
 
+def starmap(f, iterable, chunksize=1):
+    """Return an iterator equivalent to ``itertools.starmap(f, iterable)``.
+
+    Args:
+        f: A callable that will take unpacked arguments from iterable.
+        iterable: An iterable of argument tuples.
+        chunksize: The size of the chunks the iterable will be broken into
+                   before being passed to a worker process.
+
+    Returns:
+        An iterator equivalent to built-in ``itertools.starmap`` but the
+        calls may be evaluated out-of-order.
+
+    Raises:
+        Exception: If ``f(*args)`` raises for any values.
+    """
+
+    if chunksize == 1:
+        # submit one task per tuple
+        t_all = [submit(f, *args) for args in iterable]
+        waitall()
+
+        res = []
+        for task in t_all:
+            res.append(task.result())
+
+        return res
+
+    else:
+        # break the iterable into chunks of tuples
+        new_seq = list(_build_chunks(chunksize, iterable))
+        # apply f to each tuple inside the chunk
+
+        def f1(chunk):
+            return [f(*args) for args in chunk]
+
+        t_all = [submit(f1, chunk) for chunk in new_seq]
+        waitall()
+
+        res = []
+        for task in t_all:
+            res.append(task.result())
+
+        flat_res = [item for sublist in res for item in sublist]
+        return flat_res
+
+
 torc_submit = submit
 torc_map = map
+torc_starmap = starmap
 torc_wait = wait
 
 
@@ -893,6 +945,10 @@ class TorcPoolExecutor:
         return torc_map(f, seq, chunksize=chunksize)
 
     @staticmethod
+    def starmap(f, *seq, chunksize=1):
+        return torc_starmap(f, seq, chunksize=chunksize)
+
+    @staticmethod
     def wait(tasks=None):
         return torc_wait(tasks=tasks)
 
@@ -902,4 +958,3 @@ class TorcPoolExecutor:
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         return torc_wait(tasks=None)
-
