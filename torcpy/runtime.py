@@ -77,6 +77,9 @@ TORC_STEALING_ENABLED = False
 TORC_SERVER_YIELDTIME = 0.01
 TORC_WORKER_YIELDTIME = 0.01
 
+# hashmap for tasks
+torc_hmap = {}
+
 # TORC data: task queue, thread local storage, MPI communicator
 torc_q = []
 for _ in range(TORC_QUEUE_LEVELS+1):
@@ -198,6 +201,7 @@ def submit(f, *a, qid=-1, callback=None, async_callback=True, counted=True, **kw
     task = dict()
     task["varg"] = True
     task["mytask"] = id(task)
+    torc_hmap[id(task)] = task  # new
     task["f"] = f
     task["cb"] = callback
     task["async_callback"] = async_callback
@@ -225,6 +229,7 @@ def submit(f, *a, qid=-1, callback=None, async_callback=True, counted=True, **kw
         cb_task = dict()
         cb_task["varg"] = False
         cb_task["mytask"] = id(cb_task)
+        torc_hmap[id(cb_task)] = cb_task  # new
         cb_task["f"] = callback
         cb_task["kwargs"] = {}
         cb_task["args"] = None
@@ -302,10 +307,15 @@ def _do_work(task):
     if node_id() == task["homenode"]:
 
         task = ctypes.cast(task["mytask"], ctypes.py_object).value  # real task
+        task = torc_hmap[task["mytask"]]  # new
+
+
         task["out"] = copy.copy(y)
 
         # satisfy dependencies
         parent = ctypes.cast(task["parent"], ctypes.py_object).value
+        parent = torc_hmap[task["parent"]] # new
+
         torc_deps_lock.acquire()
         parent["deps"] -= 1
         parent["completed"].append(task)
@@ -501,10 +511,14 @@ def _server():
         elif ttype == "answer":
 
             real_task = ctypes.cast(task["mytask"], ctypes.py_object).value
+            real_task = torc_hmap[task["mytask"]]  # new
+
             real_task["out"] = copy.copy(task["out"])
 
             # satisfy dependencies
             parent = ctypes.cast(task["parent"], ctypes.py_object).value
+            parent = torc_hmap[task["parent"]]  # new
+
             torc_deps_lock.acquire()
             parent["deps"] -= 1
             parent["completed"].append(real_task)
@@ -635,6 +649,8 @@ def init():
     main_task = dict()
     main_task["deps"] = 0
     main_task["mytask"] = id(main_task)
+    torc_hmap[id(main_task)] = main_task # new
+
     main_task["parent"] = 0
     main_task["level"] = -1
     main_task["completed"] = []
